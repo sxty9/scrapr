@@ -1,0 +1,27 @@
+{
+  "service": "scrapr",
+  "version": 1,
+  "categories": [
+    {
+      "id": "scrapr",
+      "label": "Scraper",
+      "description": "Fine-grained rights for the agentic web scraper.",
+      "permissions": [
+        {
+          "id": "use",
+          "label": "Use scrapr",
+          "description": "Read your scrapers, runs and scraped documents.",
+          "group": "hp_scrapr_use",
+          "default": false
+        },
+        {
+          "id": "run",
+          "label": "Create & run scrapers",
+          "description": "Create/edit scrapers and trigger crawls (may reach the metered Claude API via aigentic).",
+          "group": "hp_scrapr_run",
+          "default": false
+        }
+      ]
+    }
+  ]
+}
