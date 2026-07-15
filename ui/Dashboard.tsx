@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import {
   Badge,
+  Box,
   Button,
+  CodeBlock,
   Field,
   Input,
+  Markdown,
   Panel,
   Stack,
   Text,
@@ -17,13 +20,62 @@ import type { Document, Info, Scraper, ScraperRun } from './types';
 const USE_RIGHT = 'hp_scrapr_use';
 const RUN_RIGHT = 'hp_scrapr_run';
 
-// scrapr's dashboard: run a crawl right here (URL → Scrape → documents), plus a live view of
-// your scrapers and scraped documents. The agentic scraper is domain-agnostic; studiq is one
-// consumer, but you can drive it standalone from this panel.
+type Content =
+  | { kind: 'markdown'; text: string }
+  | { kind: 'text'; text: string; ct: string }
+  | { kind: 'image'; url: string; ct: string }
+  | { kind: 'binary'; url: string; ct: string; size: number }
+  | { kind: 'none' };
+
+// scrapr's dashboard: run a crawl (URL → Scrape → documents), browse your scrapers/documents,
+// and click any document to view its stored content (fetched from lakearch).
 export function Dashboard({ user, api, ui }: ServiceContextProps) {
   const info = useLiveQuery<Info>(() => api.get<Info>('info'), 15000);
   const canUse = userHasRight(user, USE_RIGHT);
   const canRun = userHasRight(user, RUN_RIGHT);
+
+  const [viewing, setViewing] = useState<Document | null>(null);
+  const [content, setContent] = useState<Content | null>(null);
+  const [loadingC, setLoadingC] = useState(false);
+
+  function revoke(c: Content | null) {
+    if (c && (c.kind === 'image' || c.kind === 'binary')) URL.revokeObjectURL(c.url);
+  }
+  function closeDoc() {
+    revoke(content);
+    setContent(null);
+    setViewing(null);
+  }
+  async function openDoc(d: Document) {
+    revoke(content);
+    setViewing(d);
+    setContent(null);
+    setLoadingC(true);
+    try {
+      const res = await api.raw(`documents/${encodeURIComponent(d.id)}/content`);
+      if (res.status === 404) {
+        setContent({ kind: 'none' });
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      if (ct.includes('markdown')) {
+        setContent({ kind: 'markdown', text: await res.text() });
+      } else if (ct.startsWith('image/')) {
+        setContent({ kind: 'image', url: URL.createObjectURL(await res.blob()), ct });
+      } else if (ct.startsWith('text/') || ct.includes('json') || ct.includes('xml')) {
+        setContent({ kind: 'text', text: await res.text(), ct });
+      } else {
+        const blob = await res.blob();
+        setContent({ kind: 'binary', url: URL.createObjectURL(blob), ct, size: blob.size });
+      }
+    } catch (e) {
+      ui.toast({ title: 'Inhalt konnte nicht geladen werden', description: (e as Error).message, variant: 'error' });
+      setViewing(null);
+    } finally {
+      setLoadingC(false);
+    }
+  }
 
   return (
     <Stack gap={4}>
@@ -46,10 +98,12 @@ export function Dashboard({ user, api, ui }: ServiceContextProps) {
         )}
       </Panel>
 
-      {canRun && <ScrapeForm api={api} ui={ui} />}
+      {viewing && <DocViewer doc={viewing} content={content} loading={loadingC} onClose={closeDoc} />}
+
+      {canRun && <ScrapeForm api={api} ui={ui} onOpen={openDoc} />}
 
       {canUse ? (
-        <StatusPanels api={api} />
+        <StatusPanels api={api} onOpen={openDoc} />
       ) : (
         <Panel title="Scrapers" className="p-4">
           <Text color="secondary">
@@ -62,9 +116,82 @@ export function Dashboard({ user, api, ui }: ServiceContextProps) {
   );
 }
 
+// DocRow renders a document as a clickable row (title opens the viewer) + its kategorie badge.
+function DocRow({ d, onOpen }: { d: Document; onOpen: (d: Document) => void }) {
+  return (
+    <Stack direction="row" align="center" gap={2}>
+      <Button variant="ghost" size="sm" onClick={() => onOpen(d)}>
+        {d.title}
+      </Button>
+      <Badge variant="neutral">{d.kategorie}</Badge>
+    </Stack>
+  );
+}
+
+// DocViewer shows the selected document's stored content (from lakearch): markdown rendered,
+// text in a code block, images inline, anything else as a download link.
+function DocViewer({
+  doc,
+  content,
+  loading,
+  onClose,
+}: {
+  doc: Document;
+  content: Content | null;
+  loading: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <Panel title={doc.title} className="p-4">
+      <Stack gap={3}>
+        <Stack direction="row" align="center" gap={2}>
+          <Badge variant="neutral">{doc.kategorie}</Badge>
+          <Button variant="secondary" size="sm" onClick={onClose}>
+            Schließen
+          </Button>
+        </Stack>
+        {loading && <Text color="secondary">Lade Inhalt…</Text>}
+        {content?.kind === 'markdown' && (
+          <Box className="max-h-[480px] overflow-auto">
+            <Markdown text={content.text} />
+          </Box>
+        )}
+        {content?.kind === 'text' && (
+          <Box className="max-h-[480px] overflow-auto">
+            <CodeBlock code={content.text} />
+          </Box>
+        )}
+        {content?.kind === 'image' && (
+          <Stack gap={2}>
+            <Text color="secondary">Bild ({content.ct})</Text>
+            <Stack direction="row">
+              <Button variant="secondary" size="sm" onClick={() => window.open(content.url, '_blank')}>
+                In neuem Tab öffnen
+              </Button>
+            </Stack>
+          </Stack>
+        )}
+        {content?.kind === 'binary' && (
+          <Stack gap={2}>
+            <Text color="secondary">
+              Binärdatei ({content.ct}, {Math.round(content.size / 1024)} KB)
+            </Text>
+            <Stack direction="row">
+              <Button variant="secondary" size="sm" onClick={() => window.open(content.url, '_blank')}>
+                Öffnen / Herunterladen
+              </Button>
+            </Stack>
+          </Stack>
+        )}
+        {content?.kind === 'none' && <Text color="secondary">Kein Inhalt gespeichert (nur Metadaten).</Text>}
+      </Stack>
+    </Panel>
+  );
+}
+
 // ScrapeForm creates a scraper for a URL and triggers it synchronously — the quickest way to
-// see the agentic crawler work. The crawl runs on the server and can take up to ~90s.
-function ScrapeForm({ api, ui }: Pick<ServiceContextProps, 'api' | 'ui'>) {
+// see the agentic crawler work. The crawl runs on the server (~45–60s on a warm model).
+function ScrapeForm({ api, ui, onOpen }: Pick<ServiceContextProps, 'api' | 'ui'> & { onOpen: (d: Document) => void }) {
   const [url, setUrl] = useState('https://de.wikipedia.org/wiki/Graphentheorie');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -111,7 +238,7 @@ function ScrapeForm({ api, ui }: Pick<ServiceContextProps, 'api' | 'ui'>) {
           </Button>
           {busy && (
             <Text variant="footnote" color="secondary">
-              Crawle… (läuft am Server, kann bis zu ~1 Minute dauern)
+              Crawle… (läuft am Server, meist ~45–60 s)
             </Text>
           )}
         </Stack>
@@ -119,13 +246,10 @@ function ScrapeForm({ api, ui }: Pick<ServiceContextProps, 'api' | 'ui'>) {
         {run && (
           <Stack gap={1}>
             <Text weight="semibold">
-              {run.added} Dokument(e){run.status !== 'ok' ? ` · ${run.status}` : ''}:
+              {run.added} Dokument(e){run.status !== 'ok' ? ` · ${run.status}` : ''} — zum Ansehen anklicken:
             </Text>
             {run.documents.map((d) => (
-              <Stack key={d.id} direction="row" align="center" gap={2}>
-                <Text>{d.title}</Text>
-                <Badge variant="neutral">{d.kategorie}</Badge>
-              </Stack>
+              <DocRow key={d.id} d={d} onOpen={onOpen} />
             ))}
           </Stack>
         )}
@@ -135,7 +259,7 @@ function ScrapeForm({ api, ui }: Pick<ServiceContextProps, 'api' | 'ui'>) {
 }
 
 // StatusPanels is the live read-only view: all scrapers + the most recent documents.
-function StatusPanels({ api }: Pick<ServiceContextProps, 'api'>) {
+function StatusPanels({ api, onOpen }: Pick<ServiceContextProps, 'api'> & { onOpen: (d: Document) => void }) {
   const scrapers = useLiveQuery<Scraper[]>(() => api.get<Scraper[]>('scrapers'), 15000);
   const docs = useLiveQuery<Document[]>(() => api.get<Document[]>('documents'), 15000);
 
@@ -165,11 +289,8 @@ function StatusPanels({ api }: Pick<ServiceContextProps, 'api'>) {
       <Panel title={`Zuletzt gescrapt${docs.data ? ` (${docs.data.length})` : ''}`} className="p-4">
         {docs.data && docs.data.length > 0 ? (
           <Stack gap={1}>
-            {docs.data.slice(0, 15).map((d) => (
-              <Stack key={d.id} direction="row" align="center" gap={2}>
-                <Text>{d.title}</Text>
-                <Badge variant="neutral">{d.kategorie}</Badge>
-              </Stack>
+            {docs.data.slice(0, 20).map((d) => (
+              <DocRow key={d.id} d={d} onOpen={onOpen} />
             ))}
           </Stack>
         ) : (
