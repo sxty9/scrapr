@@ -104,13 +104,17 @@ func buildDecidePrompt(goal string, page *pageData) string {
 // index against the page's candidate lists. Out-of-range indices and bad kategorien are dropped
 // or defaulted — the model can only choose from what scrapr found.
 func parseAction(output string, page *pageData) (action, error) {
+	// Degrade gracefully when the model returns no usable JSON (common with small local models
+	// on large pages): keep this page's content, follow/download nothing, and stop here. The
+	// page is still captured; only navigation from it is skipped.
+	keepOnly := action{Keep: true, Kategorie: defaultKategorie, Done: true}
 	js := extractJSONObject(output)
 	if js == "" {
-		return action{}, fmt.Errorf("scrape: decision produced no JSON object")
+		return keepOnly, nil
 	}
 	var ra rawAction
 	if err := json.Unmarshal([]byte(js), &ra); err != nil {
-		return action{}, fmt.Errorf("scrape: bad decision JSON: %w", err)
+		return keepOnly, nil
 	}
 	act := action{
 		Keep:      ra.Extract.Keep,

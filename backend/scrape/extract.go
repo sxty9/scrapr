@@ -101,8 +101,9 @@ func parseHTML(fetched *Fetched, allow *allowlist, allowPrivate bool) (*pageData
 			return
 		}
 		switch n.DataAtom {
-		case atom.Script, atom.Style, atom.Noscript, atom.Template, atom.Svg, atom.Head:
-			return // skip non-content subtrees
+		case atom.Script, atom.Style, atom.Noscript, atom.Template, atom.Svg, atom.Head,
+			atom.Nav, atom.Header, atom.Footer, atom.Aside:
+			return // skip non-content subtrees + navigational chrome (menus, sidebars, footers)
 		case atom.Title:
 			if pd.Title == "" {
 				pd.Title = clean(textOf(n))
