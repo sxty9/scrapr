@@ -151,7 +151,7 @@ func TestAPIEndToEnd(t *testing.T) {
 	}
 
 	// create a scraper pointing at the local content server.
-	resp, data := call(t, ts, token, "POST", base+"scrapers", `{"name":"Course","model":"website","source":"`+content.URL+`/","scheduleKind":"manual","enabled":true}`)
+	resp, data := call(t, ts, token, "POST", base+"scrapers", `{"name":"Course","model":"website","source":"`+content.URL+`/","scheduleKind":"manual","enabled":true,"categories":["Foliensatz","Quellen"]}`)
 	if resp.StatusCode != 200 {
 		t.Fatalf("addScraper = %d: %s", resp.StatusCode, data)
 	}
@@ -219,7 +219,7 @@ func TestAPIEndToEnd(t *testing.T) {
 }
 
 func validKat(k string) bool {
-	for _, v := range scrape.KATEGORIEN {
+	for _, v := range []string{"Foliensatz", "Quellen"} { // the vocabulary the test scraper imposes
 		if k == v {
 			return true
 		}

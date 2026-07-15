@@ -127,6 +127,9 @@ func scraperJSON(sc store.Scraper) map[string]any {
 	if sc.ScheduleCustom != "" {
 		m["scheduleCustom"] = sc.ScheduleCustom
 	}
+	if len(sc.Categories) > 0 {
+		m["categories"] = sc.Categories
+	}
 	if sc.LastRunStatus != "" && sc.LastRunStatus != "never" {
 		m["lastRun"] = map[string]any{
 			"at":     isoTime(sc.LastRunAt),

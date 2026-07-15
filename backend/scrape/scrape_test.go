@@ -96,7 +96,7 @@ func newReg(t *testing.T, srv *httptest.Server, grave graveyard.Graveyard, budge
 
 func runCrawl(t *testing.T, reg *prizm.Registry, runID, seed string, budget scrape.Budget) scrape.Out {
 	t.Helper()
-	job := scrape.JobSpec{RunID: runID, Goal: "collect study materials", Seeds: []string{seed}, Budget: budget}
+	job := scrape.JobSpec{RunID: runID, Goal: "collect study materials", Seeds: []string{seed}, Categories: testCategories, Budget: budget}
 	data, err := prizm.EncodeData(scrape.In{Job: &job})
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -204,8 +204,12 @@ func TestBudgetStopsCrawl(t *testing.T) {
 	}
 }
 
+// testCategories is the vocabulary the tests impose (matching the fake action's choices), to
+// exercise the constrained-classification path. The fake action returns "Quellen"/"Foliensatz".
+var testCategories = []string{"Foliensatz", "Quellen"}
+
 func kategorieValid(k string) bool {
-	for _, v := range scrape.KATEGORIEN {
+	for _, v := range testCategories {
 		if k == v {
 			return true
 		}

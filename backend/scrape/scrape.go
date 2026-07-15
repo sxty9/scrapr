@@ -41,14 +41,8 @@ const (
 	defaultDecideTokens = 1024
 )
 
-// KATEGORIEN mirrors studiq's provenance taxonomy (studiq/src/types.ts KATEGORIEN). The LLM
-// classifies each artifact into exactly one of these; anything else falls back to defaultKategorie.
-var KATEGORIEN = []string{
-	"Foliensatz", "Mitschriften", "Cheatsheets", "Übungen",
-	"Probeklausuren", "Klausurvorbereitung", "Notizen", "Quellen",
-}
-
-const defaultKategorie = "Quellen"
+// maxCategoryLen caps a free-form (model-authored) category label.
+const maxCategoryLen = 40
 
 // In is a scrape request. Exactly one of Job (top-level coordinator) or Page (fanned-out
 // worker) is set — the tagged union that lets one Kind serve both roles.
@@ -58,12 +52,16 @@ type In struct {
 }
 
 // JobSpec is one crawl: one studiq Scraper maps to one of these.
+// scrapr is domain-agnostic: it imposes no taxonomy. Categories is an OPTIONAL vocabulary the
+// caller supplies (e.g. studiq passes its learning taxonomy); when set, the LLM must classify
+// each artifact into one of them, else it assigns a free-form label.
 type JobSpec struct {
-	RunID  string   `json:"runId"`
-	Goal   string   `json:"goal"`   // natural-language objective shown to the LLM
-	Seeds  []string `json:"seeds"`  // starting URLs (from Scraper.source)
-	Allow  []string `json:"allow"`  // registrable-domain allowlist; derived from seeds when empty
-	Budget Budget   `json:"budget"` // hard limits; zero fields fall back to the config default
+	RunID      string   `json:"runId"`
+	Goal       string   `json:"goal"`       // natural-language objective shown to the LLM
+	Seeds      []string `json:"seeds"`      // starting URLs (from Scraper.source)
+	Allow      []string `json:"allow"`      // registrable-domain allowlist; derived from seeds when empty
+	Categories []string `json:"categories"` // optional category vocabulary; empty => free-form
+	Budget     Budget   `json:"budget"`     // hard limits; zero fields fall back to the config default
 }
 
 // PageTask is one page for a worker to process.

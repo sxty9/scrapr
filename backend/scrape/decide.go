@@ -53,9 +53,9 @@ type rawAction struct {
 
 // decideNext asks aigentic's choose router what to do with this page and returns the validated,
 // resolved action. An engine-unavailability error propagates so the coordinator can surface 503.
-func (p *processor) decideNext(ctx context.Context, env prizm.Env, goal string, page *pageData) (action, error) {
+func (p *processor) decideNext(ctx context.Context, env prizm.Env, goal string, page *pageData, categories []string) (action, error) {
 	req := aigentic.Request{
-		Prompt:       buildDecidePrompt(goal, page),
+		Prompt:       buildDecidePrompt(goal, page, categories),
 		OutputFormat: "json",
 		Model:        p.cfg.DecideModel,
 		MaxTokens:    p.cfg.MaxDecideTokens,
@@ -65,12 +65,13 @@ func (p *processor) decideNext(ctx context.Context, env prizm.Env, goal string, 
 	if err != nil {
 		return action{}, err
 	}
-	return parseAction(res.Output, page)
+	return parseAction(res.Output, page, categories)
 }
 
 // buildDecidePrompt renders the goal, page context and enumerated candidates into an
-// instruction that constrains the model to the strict action JSON.
-func buildDecidePrompt(goal string, page *pageData) string {
+// instruction that constrains the model to the strict action JSON. categories (optional) is the
+// caller's category vocabulary; empty => the model assigns a free-form label (scrapr imposes none).
+func buildDecidePrompt(goal string, page *pageData, categories []string) string {
 	var b strings.Builder
 	b.WriteString("You are the decision step of an agentic web scraper. Decide what to do with the current page to satisfy the goal.\n\n")
 	b.WriteString("GOAL: " + strings.TrimSpace(goal) + "\n\n")
@@ -90,24 +91,31 @@ func buildDecidePrompt(goal string, page *pageData) string {
 	for i, c := range page.Downloads {
 		b.WriteString(fmt.Sprintf("[%d] %s — %s\n", i, truncate(c.Anchor, 80), c.URL))
 	}
+	kat := `"<a short 1-3 word topic label>"`
+	katRule := "For kategorie, choose a short label that best describes the content. "
+	if len(categories) > 0 {
+		kat = `"<one of: ` + strings.Join(categories, ", ") + `>"`
+		katRule = "Pick kategorie from the listed set. "
+	}
 	b.WriteString("\nRespond with ONLY a JSON object of this exact shape (no prose, no code fence):\n")
-	b.WriteString(`{"extract":{"keep":<bool>,"title":"<string>","kategorie":"<one of: ` + strings.Join(KATEGORIEN, ", ") + `>","summary":"<one line>"},`)
+	b.WriteString(`{"extract":{"keep":<bool>,"title":"<string>","kategorie":` + kat + `,"summary":"<one line>"},`)
 	b.WriteString(`"follow":[{"index":<int>,"reason":"<why>"}],`)
-	b.WriteString(`"download":[{"index":<int>,"title":"<string>","kategorie":"<one of the above>","reason":"<why>"}],`)
+	b.WriteString(`"download":[{"index":<int>,"title":"<string>","kategorie":` + kat + `,"reason":"<why>"}],`)
 	b.WriteString(`"done":<bool>}` + "\n")
 	b.WriteString("\nRules: keep=true if this page's text is relevant to the goal. Only reference indices that appear above. ")
-	b.WriteString("Pick kategorie from the listed set. Follow only links that advance the goal; set done=true when nothing more is worth visiting from here.")
+	b.WriteString(katRule)
+	b.WriteString("Follow only links that advance the goal; set done=true when nothing more is worth visiting from here.")
 	return b.String()
 }
 
 // parseAction extracts the JSON object from the model output, validates it, and resolves each
 // index against the page's candidate lists. Out-of-range indices and bad kategorien are dropped
 // or defaulted — the model can only choose from what scrapr found.
-func parseAction(output string, page *pageData) (action, error) {
+func parseAction(output string, page *pageData, categories []string) (action, error) {
 	// Degrade gracefully when the model returns no usable JSON (common with small local models
 	// on large pages): keep this page's content, follow/download nothing, and stop here. The
 	// page is still captured; only navigation from it is skipped.
-	keepOnly := action{Keep: true, Kategorie: defaultKategorie, Done: true}
+	keepOnly := action{Keep: true, Kategorie: categoryFallback(categories), Done: true}
 	js := extractJSONObject(output)
 	if js == "" {
 		return keepOnly, nil
@@ -119,7 +127,7 @@ func parseAction(output string, page *pageData) (action, error) {
 	act := action{
 		Keep:      ra.Extract.Keep,
 		Title:     clean(ra.Extract.Title),
-		Kategorie: validKategorie(ra.Extract.Kategorie),
+		Kategorie: normalizeCategory(ra.Extract.Kategorie, categories),
 		Done:      ra.Done,
 	}
 	seenFollow := map[int]bool{}
@@ -139,7 +147,7 @@ func parseAction(output string, page *pageData) (action, error) {
 		act.Downloads = append(act.Downloads, resolvedDownload{
 			URL:       page.Downloads[d.Index].URL,
 			Title:     firstNonEmpty(clean(d.Title), page.Downloads[d.Index].Anchor),
-			Kategorie: validKategorie(d.Kategorie),
+			Kategorie: normalizeCategory(d.Kategorie, categories),
 		})
 	}
 	return act, nil

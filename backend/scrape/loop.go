@@ -32,7 +32,7 @@ func (p *processor) coordinate(ctx context.Context, job JobSpec, env prizm.Env) 
 		return Out{}, errors.New("scrape: no valid seed URL / allowlist")
 	}
 
-	rs := &runState{goal: job.Goal, allow: allow, budget: b, visited: map[string]bool{}}
+	rs := &runState{goal: job.Goal, allow: allow, budget: b, categories: job.Categories, visited: map[string]bool{}}
 	p.runs.put(job.RunID, rs)
 	defer p.runs.del(job.RunID)
 
@@ -136,7 +136,7 @@ func (p *processor) work(ctx context.Context, task PageTask, env prizm.Env) (Out
 			Artifacts: []Artifact{{
 				URL:       fetched.FinalURL,
 				Title:     titleFromURL(fetched.FinalURL),
-				Kategorie: defaultKategorie,
+				Kategorie: categoryFallback(rs.categories),
 				MediaType: fetched.ContentType,
 				Bytes:     n,
 				Ref:       ref,
@@ -149,7 +149,7 @@ func (p *processor) work(ctx context.Context, task PageTask, env prizm.Env) (Out
 		return Out{}, nil
 	}
 
-	act, aerr := p.decideNext(ctx, env, rs.goal, page)
+	act, aerr := p.decideNext(ctx, env, rs.goal, page, rs.categories)
 	if aerr != nil {
 		if errors.Is(aerr, aigentic.ErrProcessorUnavailable) {
 			return Out{}, aerr // fatal: abort the crawl

@@ -36,6 +36,7 @@ type Scraper struct {
 	Enabled        bool
 	Goal           string
 	Allow          []string
+	Categories     []string // optional category vocabulary; empty => free-form (scrapr imposes none)
 	StoreRef       string
 	LastRunAt      int64 // unix; 0 => never
 	LastRunStatus  string
@@ -54,6 +55,7 @@ type ScraperPatch struct {
 	Enabled        *bool
 	Goal           *string
 	Allow          *[]string
+	Categories     *[]string
 	StoreRef       *string
 }
 
@@ -101,6 +103,7 @@ CREATE TABLE IF NOT EXISTS scrapers(
   enabled         INTEGER NOT NULL DEFAULT 1,
   goal            TEXT NOT NULL DEFAULT '',
   allow_json      TEXT NOT NULL DEFAULT '[]',
+  categories_json TEXT NOT NULL DEFAULT '[]',
   store_ref       TEXT NOT NULL DEFAULT '',
   last_run_at     INTEGER NOT NULL DEFAULT 0,
   last_run_status TEXT NOT NULL DEFAULT 'never',
@@ -130,7 +133,7 @@ CREATE TABLE IF NOT EXISTS documents(
   scraper_id   TEXT NOT NULL DEFAULT '',
   owner        TEXT NOT NULL,
   title        TEXT NOT NULL,
-  kategorie    TEXT NOT NULL DEFAULT 'Quellen',
+  kategorie    TEXT NOT NULL DEFAULT '',
   source       TEXT NOT NULL DEFAULT 'scraper',
   module_id    TEXT NOT NULL DEFAULT '',
   url          TEXT NOT NULL DEFAULT '',
@@ -165,6 +168,10 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	// Migrate DBs created before categories: add the column if missing (CREATE TABLE IF NOT
+	// EXISTS never alters an existing table). The duplicate-column error on an already-migrated
+	// DB is expected and ignored.
+	_, _ = db.Exec(`ALTER TABLE scrapers ADD COLUMN categories_json TEXT NOT NULL DEFAULT '[]'`)
 	return &Store{db: db}, nil
 }
 
@@ -214,10 +221,10 @@ func (s *Store) AddScraper(sc Scraper) (Scraper, error) {
 	}
 	sc.LastRunStatus = "never"
 	_, err := s.db.Exec(
-		`INSERT INTO scrapers(id,owner,name,model,source,schedule_kind,schedule_custom,enabled,goal,allow_json,store_ref,last_run_at,last_run_status,last_run_added,created,updated)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,0,'never',0,?,?)`,
+		`INSERT INTO scrapers(id,owner,name,model,source,schedule_kind,schedule_custom,enabled,goal,allow_json,categories_json,store_ref,last_run_at,last_run_status,last_run_added,created,updated)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,0,'never',0,?,?)`,
 		sc.ID, sc.Owner, sc.Name, sc.Model, sc.Source, sc.ScheduleKind, sc.ScheduleCustom,
-		boolToInt(sc.Enabled), sc.Goal, marshalAllow(sc.Allow), sc.StoreRef, sc.Created, sc.Updated,
+		boolToInt(sc.Enabled), sc.Goal, marshalAllow(sc.Allow), marshalAllow(sc.Categories), sc.StoreRef, sc.Created, sc.Updated,
 	)
 	if err != nil {
 		return Scraper{}, err
@@ -285,14 +292,17 @@ func (s *Store) UpdateScraper(owner, id string, p ScraperPatch) (Scraper, error)
 	if p.Allow != nil {
 		sc.Allow = *p.Allow
 	}
+	if p.Categories != nil {
+		sc.Categories = *p.Categories
+	}
 	if p.StoreRef != nil {
 		sc.StoreRef = *p.StoreRef
 	}
 	sc.Updated = time.Now().Unix()
 	_, err = s.db.Exec(
-		`UPDATE scrapers SET name=?,model=?,source=?,schedule_kind=?,schedule_custom=?,enabled=?,goal=?,allow_json=?,store_ref=?,updated=? WHERE owner=? AND id=?`,
+		`UPDATE scrapers SET name=?,model=?,source=?,schedule_kind=?,schedule_custom=?,enabled=?,goal=?,allow_json=?,categories_json=?,store_ref=?,updated=? WHERE owner=? AND id=?`,
 		sc.Name, sc.Model, sc.Source, sc.ScheduleKind, sc.ScheduleCustom, boolToInt(sc.Enabled),
-		sc.Goal, marshalAllow(sc.Allow), sc.StoreRef, sc.Updated, owner, id,
+		sc.Goal, marshalAllow(sc.Allow), marshalAllow(sc.Categories), sc.StoreRef, sc.Updated, owner, id,
 	)
 	if err != nil {
 		return Scraper{}, err
@@ -347,9 +357,7 @@ func (s *Store) InsertDocument(d Document) (Document, error) {
 	if d.Source == "" {
 		d.Source = "scraper"
 	}
-	if d.Kategorie == "" {
-		d.Kategorie = "Quellen"
-	}
+	// No taxonomy default: kategorie may be empty (free-form scraper) — scrapr imposes none.
 	_, err := s.db.Exec(
 		`INSERT INTO documents(id,run_id,scraper_id,owner,title,kategorie,source,module_id,url,media_type,bytes,lakearch_ref,added)
 		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -412,7 +420,7 @@ func (s *Store) Document(owner, id string) (Document, error) {
 
 // ── scanning helpers ────────────────────────────────────────────────────────────────
 
-const scraperCols = `id,owner,name,model,source,schedule_kind,schedule_custom,enabled,goal,allow_json,store_ref,last_run_at,last_run_status,last_run_added,created,updated`
+const scraperCols = `id,owner,name,model,source,schedule_kind,schedule_custom,enabled,goal,allow_json,categories_json,store_ref,last_run_at,last_run_status,last_run_added,created,updated`
 
 const docCols = `id,run_id,scraper_id,owner,title,kategorie,source,module_id,url,media_type,bytes,lakearch_ref,added`
 
@@ -423,14 +431,15 @@ type scanner interface {
 func scanScraper(row scanner) (Scraper, error) {
 	var sc Scraper
 	var enabled int
-	var allowJSON string
+	var allowJSON, categoriesJSON string
 	err := row.Scan(&sc.ID, &sc.Owner, &sc.Name, &sc.Model, &sc.Source, &sc.ScheduleKind, &sc.ScheduleCustom,
-		&enabled, &sc.Goal, &allowJSON, &sc.StoreRef, &sc.LastRunAt, &sc.LastRunStatus, &sc.LastRunAdded, &sc.Created, &sc.Updated)
+		&enabled, &sc.Goal, &allowJSON, &categoriesJSON, &sc.StoreRef, &sc.LastRunAt, &sc.LastRunStatus, &sc.LastRunAdded, &sc.Created, &sc.Updated)
 	if err != nil {
 		return Scraper{}, err
 	}
 	sc.Enabled = enabled != 0
 	sc.Allow = unmarshalAllow(allowJSON)
+	sc.Categories = unmarshalAllow(categoriesJSON)
 	return sc, nil
 }
 

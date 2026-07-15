@@ -42,9 +42,10 @@ func (r *runRegistry) del(id string) {
 // read them lock-free); visited/pages/bytes/arts are mutated under mu (reserve from the
 // coordinator, collect from result aggregation).
 type runState struct {
-	goal   string
-	allow  *allowlist
-	budget Budget
+	goal       string
+	allow      *allowlist
+	budget     Budget
+	categories []string // optional category vocabulary; empty => free-form labels
 
 	mu      sync.Mutex
 	visited map[string]bool
@@ -237,11 +238,31 @@ func firstNonEmpty(xs ...string) string {
 }
 
 // validKategorie returns k if it is one of KATEGORIEN, else defaultKategorie.
-func validKategorie(k string) string {
-	for _, v := range KATEGORIEN {
+// categoryFallback is the category used when the model's choice is invalid, or for an artifact
+// stored without a model decision (a direct asset): the LAST configured category (a catch-all by
+// convention), or "" when the scraper set no vocabulary (free-form — scrapr imposes none).
+func categoryFallback(categories []string) string {
+	if len(categories) == 0 {
+		return ""
+	}
+	return categories[len(categories)-1]
+}
+
+// normalizeCategory maps the model's category choice to the scraper's vocabulary. With a
+// configured vocabulary the label must be one of them (else the fallback). With no vocabulary it
+// is free-form: a cleaned, length-capped label straight from the model — scrapr imposes no taxonomy.
+func normalizeCategory(k string, categories []string) string {
+	k = clean(k)
+	if len(categories) == 0 {
+		if len(k) > maxCategoryLen {
+			k = strings.TrimSpace(k[:maxCategoryLen])
+		}
+		return k
+	}
+	for _, v := range categories {
 		if k == v {
 			return k
 		}
 	}
-	return defaultKategorie
+	return categoryFallback(categories)
 }

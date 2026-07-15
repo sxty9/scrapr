@@ -35,12 +35,13 @@ func (s *Server) listScrapers(w http.ResponseWriter, _ *http.Request, u *auth.Us
 // addScraper → studiq DataSource.addScraper(input). input = Omit<Scraper,'id'|'lastRun'>.
 func (s *Server) addScraper(w http.ResponseWriter, r *http.Request, u *auth.User) {
 	var body struct {
-		Name           string `json:"name"`
-		Model          string `json:"model"`
-		Source         string `json:"source"`
-		ScheduleKind   string `json:"scheduleKind"`
-		ScheduleCustom string `json:"scheduleCustom"`
-		Enabled        *bool  `json:"enabled"`
+		Name           string   `json:"name"`
+		Model          string   `json:"model"`
+		Source         string   `json:"source"`
+		ScheduleKind   string   `json:"scheduleKind"`
+		ScheduleCustom string   `json:"scheduleCustom"`
+		Enabled        *bool    `json:"enabled"`
+		Categories     []string `json:"categories"` // optional taxonomy the caller imposes; empty => free-form
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -57,6 +58,7 @@ func (s *Server) addScraper(w http.ResponseWriter, r *http.Request, u *auth.User
 		ScheduleKind:   body.ScheduleKind,
 		ScheduleCustom: body.ScheduleCustom,
 		Enabled:        enabled,
+		Categories:     body.Categories,
 	})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "Could not create scraper")
@@ -69,12 +71,13 @@ func (s *Server) addScraper(w http.ResponseWriter, r *http.Request, u *auth.User
 func (s *Server) updateScraper(w http.ResponseWriter, r *http.Request, u *auth.User) {
 	id := r.PathValue("id")
 	var body struct {
-		Name           *string `json:"name"`
-		Model          *string `json:"model"`
-		Source         *string `json:"source"`
-		ScheduleKind   *string `json:"scheduleKind"`
-		ScheduleCustom *string `json:"scheduleCustom"`
-		Enabled        *bool   `json:"enabled"`
+		Name           *string   `json:"name"`
+		Model          *string   `json:"model"`
+		Source         *string   `json:"source"`
+		ScheduleKind   *string   `json:"scheduleKind"`
+		ScheduleCustom *string   `json:"scheduleCustom"`
+		Enabled        *bool     `json:"enabled"`
+		Categories     *[]string `json:"categories"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -86,6 +89,7 @@ func (s *Server) updateScraper(w http.ResponseWriter, r *http.Request, u *auth.U
 		ScheduleKind:   body.ScheduleKind,
 		ScheduleCustom: body.ScheduleCustom,
 		Enabled:        body.Enabled,
+		Categories:     body.Categories,
 	})
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "No such scraper")
@@ -123,11 +127,12 @@ func (s *Server) triggerScraper(w http.ResponseWriter, r *http.Request, u *auth.
 	}
 
 	job := scrape.JobSpec{
-		RunID:  runID,
-		Goal:   goalFor(sc),
-		Seeds:  []string{sc.Source},
-		Allow:  sc.Allow,
-		Budget: jobBudget(),
+		RunID:      runID,
+		Goal:       goalFor(sc),
+		Seeds:      []string{sc.Source},
+		Allow:      sc.Allow,
+		Categories: sc.Categories,
+		Budget:     jobBudget(),
 	}
 	data, err := prizm.EncodeData(scrape.In{Job: &job})
 	if err != nil {

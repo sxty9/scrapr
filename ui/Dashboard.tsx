@@ -133,7 +133,7 @@ function DocRow({ d, onOpen }: { d: Document; onOpen: (d: Document) => void }) {
       <Button variant="ghost" size="sm" onClick={() => onOpen(d)}>
         {d.title}
       </Button>
-      <Badge variant="neutral">{d.kategorie}</Badge>
+      {d.kategorie && <Badge variant="neutral">{d.kategorie}</Badge>}
     </Stack>
   );
 }
@@ -184,6 +184,7 @@ function DocContent({ content, loading }: { content: Content | null; loading: bo
 function ScrapeForm({ api, ui, onOpen }: Pick<ServiceContextProps, 'api' | 'ui'> & { onOpen: (d: Document) => void }) {
   const [url, setUrl] = useState('https://de.wikipedia.org/wiki/Graphentheorie');
   const [name, setName] = useState('');
+  const [cats, setCats] = useState('');
   const [busy, setBusy] = useState(false);
   const [run, setRun] = useState<ScraperRun | null>(null);
 
@@ -193,6 +194,10 @@ function ScrapeForm({ api, ui, onOpen }: Pick<ServiceContextProps, 'api' | 'ui'>
       ui.toast({ title: 'Bitte eine URL eingeben', variant: 'error' });
       return;
     }
+    const categories = cats
+      .split(',')
+      .map((c) => c.trim())
+      .filter(Boolean);
     setBusy(true);
     setRun(null);
     try {
@@ -202,6 +207,7 @@ function ScrapeForm({ api, ui, onOpen }: Pick<ServiceContextProps, 'api' | 'ui'>
         source,
         scheduleKind: 'manual',
         enabled: true,
+        categories,
       });
       const result = await api.post<ScraperRun>(`scrapers/${encodeURIComponent(scraper.id)}/trigger`);
       setRun(result);
@@ -221,6 +227,9 @@ function ScrapeForm({ api, ui, onOpen }: Pick<ServiceContextProps, 'api' | 'ui'>
         </Field>
         <Field label="Name (optional)">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Mein Scraper" />
+        </Field>
+        <Field label="Kategorien (optional, kommagetrennt)" hint="Leer = das LLM vergibt freie Labels. Sonst klassifiziert es nur in diese.">
+          <Input value={cats} onChange={(e) => setCats(e.target.value)} placeholder="z. B. Artikel, Bild, Quelle" />
         </Field>
         <Stack direction="row" gap={2} align="center">
           <Button variant="primary" loading={busy} onClick={scrape}>
