@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import {
   Badge,
-  Box,
   Button,
   CodeBlock,
   Field,
   Input,
   Markdown,
+  Modal,
   Panel,
   Stack,
   Text,
@@ -98,8 +98,6 @@ export function Dashboard({ user, api, ui }: ServiceContextProps) {
         )}
       </Panel>
 
-      {viewing && <DocViewer doc={viewing} content={content} loading={loadingC} onClose={closeDoc} />}
-
       {canRun && <ScrapeForm api={api} ui={ui} onOpen={openDoc} />}
 
       {canUse ? (
@@ -112,6 +110,18 @@ export function Dashboard({ user, api, ui }: ServiceContextProps) {
           </Text>
         </Panel>
       )}
+
+      <Modal
+        open={!!viewing}
+        onOpenChange={(o) => {
+          if (!o) closeDoc();
+        }}
+        title={viewing?.title ?? 'Dokument'}
+        description={viewing?.kategorie}
+        size="lg"
+      >
+        <DocContent content={content} loading={loadingC} />
+      </Modal>
     </Stack>
   );
 }
@@ -128,65 +138,45 @@ function DocRow({ d, onOpen }: { d: Document; onOpen: (d: Document) => void }) {
   );
 }
 
-// DocViewer shows the selected document's stored content (from lakearch): markdown rendered,
-// text in a code block, images inline, anything else as a download link.
-function DocViewer({
-  doc,
-  content,
-  loading,
-  onClose,
-}: {
-  doc: Document;
-  content: Content | null;
-  loading: boolean;
-  onClose: () => void;
-}) {
-  return (
-    <Panel title={doc.title} className="p-4">
-      <Stack gap={3}>
-        <Stack direction="row" align="center" gap={2}>
-          <Badge variant="neutral">{doc.kategorie}</Badge>
-          <Button variant="secondary" size="sm" onClick={onClose}>
-            Schließen
-          </Button>
+// DocContent renders the selected document's stored content (from lakearch) inside the modal:
+// markdown rendered, text in a code block, images/binaries opened in a new browser tab.
+function DocContent({ content, loading }: { content: Content | null; loading: boolean }) {
+  if (loading) return <Text color="secondary">Lade Inhalt…</Text>;
+  if (!content) return null;
+  switch (content.kind) {
+    case 'markdown':
+      return <Markdown text={content.text} />;
+    case 'text':
+      return <CodeBlock code={content.text} />;
+    case 'image':
+      return (
+        <Stack gap={2}>
+          <Text color="secondary">Bild ({content.ct})</Text>
+          <Stack direction="row">
+            <Button variant="secondary" size="sm" onClick={() => window.open(content.url, '_blank')}>
+              In neuem Tab öffnen
+            </Button>
+          </Stack>
         </Stack>
-        {loading && <Text color="secondary">Lade Inhalt…</Text>}
-        {content?.kind === 'markdown' && (
-          <Box className="max-h-[480px] overflow-auto">
-            <Markdown text={content.text} />
-          </Box>
-        )}
-        {content?.kind === 'text' && (
-          <Box className="max-h-[480px] overflow-auto">
-            <CodeBlock code={content.text} />
-          </Box>
-        )}
-        {content?.kind === 'image' && (
-          <Stack gap={2}>
-            <Text color="secondary">Bild ({content.ct})</Text>
-            <Stack direction="row">
-              <Button variant="secondary" size="sm" onClick={() => window.open(content.url, '_blank')}>
-                In neuem Tab öffnen
-              </Button>
-            </Stack>
+      );
+    case 'binary':
+      return (
+        <Stack gap={2}>
+          <Text color="secondary">
+            Binärdatei ({content.ct}, {Math.round(content.size / 1024)} KB)
+          </Text>
+          <Stack direction="row">
+            <Button variant="secondary" size="sm" onClick={() => window.open(content.url, '_blank')}>
+              Öffnen / Herunterladen
+            </Button>
           </Stack>
-        )}
-        {content?.kind === 'binary' && (
-          <Stack gap={2}>
-            <Text color="secondary">
-              Binärdatei ({content.ct}, {Math.round(content.size / 1024)} KB)
-            </Text>
-            <Stack direction="row">
-              <Button variant="secondary" size="sm" onClick={() => window.open(content.url, '_blank')}>
-                Öffnen / Herunterladen
-              </Button>
-            </Stack>
-          </Stack>
-        )}
-        {content?.kind === 'none' && <Text color="secondary">Kein Inhalt gespeichert (nur Metadaten).</Text>}
-      </Stack>
-    </Panel>
-  );
+        </Stack>
+      );
+    case 'none':
+      return <Text color="secondary">Kein Inhalt gespeichert (nur Metadaten).</Text>;
+    default:
+      return null;
+  }
 }
 
 // ScrapeForm creates a scraper for a URL and triggers it synchronously — the quickest way to
