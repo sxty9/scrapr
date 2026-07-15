@@ -46,8 +46,8 @@ echo "→ crawling (synchronous; up to the crawl deadline)…"
 curl -fsS --max-time 180 "${AUTH[@]}" -X POST "$BASE/scrapers/$ID/trigger" | python3 -c '
 import json,sys
 d=json.load(sys.stdin)
-print(f"  status: {d.get(\"status\")}   documents added: {d.get(\"added\")}")
+print("  status:", d.get("status"), "  documents added:", d.get("added"))
 for x in d.get("documents",[]):
-    print(f"   - [{x.get(\"kategorie\")}] {x.get(\"title\",\"\")[:72]}")
+    print("   - [" + str(x.get("kategorie")) + "] " + str(x.get("title",""))[:72])
 '
 echo "✓ done."
