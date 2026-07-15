@@ -28,8 +28,11 @@ type pageData struct {
 }
 
 const (
-	maxLinks       = 150
-	maxDownloads   = 80
+	// Candidate caps bound the decide-prompt size: a smaller prompt means much faster LLM
+	// decisions (prefill dominates on split-GPU / slow-PCIe boxes), so a crawl finishes well
+	// inside its deadline. The LLM still picks from these by index.
+	maxLinks       = 60
+	maxDownloads   = 40
 	maxMarkdownLen = 24 << 10
 )
 
