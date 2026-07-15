@@ -25,3 +25,11 @@ export interface Document {
   source: string;
   addedAt: string;
 }
+
+export interface ScraperRun {
+  scraperId: string;
+  at: string;
+  status: string;
+  added: number;
+  documents: Document[];
+}
