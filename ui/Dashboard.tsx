@@ -13,7 +13,7 @@ import {
   useLiveQuery,
   userHasRight,
   type ServiceContextProps,
-} from '@holistic/ui';
+} from '@holisdk/ui';
 import type { Document, Info, Scraper, ScraperRun } from './types';
 
 // Rights (mirror permissions/scrapr.json ⇄ internal/rights). Admins always pass.

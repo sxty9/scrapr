@@ -1,4 +1,4 @@
-import { BoltIcon, type ServicePlugin } from '@holistic/ui';
+import { BoltIcon, type ServicePlugin } from '@holisdk/ui';
 import { Dashboard } from './Dashboard';
 
 // scrapr's dashboard plugin. Linked into holistic/frontend/external/<id> at install time and
